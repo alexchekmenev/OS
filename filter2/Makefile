@@ -1,7 +1,7 @@
 all: filter2
 
-filter2: filter2.c ../lib/helpers.c
-	gcc -o filter2 -w filter2.c ../lib/helpers.c -I.
+filter2: filter2.c
+	gcc -w -L../lib -Wl,-rpath=../lib -o filter2 filter2.c -lhelpers
 
 clean:
 	rm *.o filter2

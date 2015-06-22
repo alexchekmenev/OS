@@ -32,8 +32,15 @@ int main(int argc, char **argv) {
         args[spaces] = NULL;
 
         int res = spawn(args[0], args);
-        if (res != 0) {
-            return 1;
+        if (res == 0) {
+            int len = strlen(args[0]);
+            char out[len + 2];
+            memcpy(out, args[0], len);
+            out[len] = '\n';
+            out[len + 1] = '\0';
+            write_(STDOUT_FILENO, out, len + 1);
+        } else {
+            //return 1;
         }
     }
     return 0;
