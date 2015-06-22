@@ -42,6 +42,10 @@ int main(int argc, char **argv) {
         } else {
             //return 1;
         }
+
+        for(i = 0; i < spaces + 1; i++ ) {
+            free(args[i]);
+        }
     }
     return 0;
 }
