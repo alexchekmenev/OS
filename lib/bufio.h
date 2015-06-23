@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 struct buf_t {
-    size_t fill_size;
+    size_t size;
     size_t capacity;
     char *data;
 };

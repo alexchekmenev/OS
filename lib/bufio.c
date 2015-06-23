@@ -5,9 +5,9 @@
 struct buf_t *buf_new(size_t capacity) {
     struct buf_t *res = (struct buf_t *)malloc(sizeof(struct buf_t));
     if (res != NULL) {
-        res->data = (char *)malloc(capacity);
+        res->data = (char*)malloc(capacity);
         res->capacity = capacity;
-        res->fill_size = 0;
+        res->size = 0;
     }
     return res;
 }
@@ -18,7 +18,7 @@ void buf_free(struct buf_t *buf) {
         abort();
     }
     #endif // DEBUG
-    if (buf->fill_size != 0) {
+    if (buf->size != 0) {
         free(buf->data);
     }
     free(buf);
@@ -39,121 +39,67 @@ size_t buf_size(struct buf_t *buf) {
         abort();
     }
     #endif // DEBUG
-    return buf->fill_size;
+    return buf->size;
 }
 
 ssize_t buf_fill(int fd, struct buf_t *buf, size_t required) {
     #ifdef DEBUG
-    if (buf == NULL) {
+    if (!buf || required > buf->capacity)
         abort();
-        return -1;
-    }
-    #endif // DEBUG
-    size_t total_read = 0;
-    size_t now_read;
-    char *tmp = (char *)malloc(buf->capacity);
-    int eof = 0;
-    while (1) {
-        now_read = read(fd, tmp + total_read + buf->fill_size, buf->capacity - buf->fill_size - total_read);
-        if (now_read < 0) {
-            free(tmp);
-            return -1;
-        }
-        if (now_read == 0) {
-            eof = 1;
-            break;
-        }
-        total_read += now_read;
-        if (total_read >= required) {
-            break;
-        }
-        if (buf->capacity - buf->fill_size - total_read == 0) {
-            break;
-        }
-    }
-    // save old data:
-    size_t i;
-    for (i = 0; i < buf->fill_size; i++) {
-        tmp[i] = buf->data[i];
-    }
-    // delete old data
-    free(buf->data);
-    // update data
-    buf->fill_size += total_read;
-    buf->data = (char *)malloc(buf->fill_size);
-    for (i = 0; i < buf->fill_size; i++) {
-        buf->data[i] = tmp[i];
-    }
-    // delete temporary data
-    free(tmp);
-    #ifdef DEBUG
-    if (buf->fill_size == buf->capacity && total_read < required && eof == 0) {
-        abort();
-    }
     #endif
-    return buf->fill_size;
+    int now_read = 0;
+    while (1) {
+        if (buf->size < required) {
+            now_read = read(fd, buf->data + buf->size, buf->capacity - buf->size);
+            if (now_read <= 0) break;
+            else buf->size += now_read;
+        } else {
+            break;
+        }
+    }
+    return (now_read < 0 ? -1 : buf->size);
 }
 
 ssize_t buf_flush(int fd, struct buf_t *buf, size_t required) {
     #ifdef DEBUG
-    if (buf == NULL) {
+    if (!buf)
         abort();
-        return -1;
-    }
-    #endif // DEBUG
-    size_t total_written = 0;
-    size_t now_written;
+    #endif
+    int total_written = 0, now_written = 0;
     while (1) {
-        size_t try_to_write = buf->capacity - total_written;
-        if (try_to_write > buf->fill_size) {
-            try_to_write = buf->fill_size;
-        }
-        now_written = write(fd, buf->data + total_written, try_to_write);
-        if (now_written < 0) {
-            return -1;
-        }
-        if (now_written == 0) {
-            break;
-        }
-        total_written += now_written;
-        if (total_written > required) {
-            break;
-        }
-        if (try_to_write - total_written == 0) {
+        if (total_written < required && total_written < buf->size) {
+            now_written = write(fd, buf->data, buf->size - total_written);
+            if (now_written < 0) break;
+            else {
+                total_written += now_written;
+            }
+        } else {
             break;
         }
     }
-    buf->fill_size -= total_written;
-    char *tmp = (char *)malloc(buf->fill_size);
-    size_t i;
-    for (i = 0; i < buf->fill_size; i++) {
-        tmp[i] = buf->data[i + total_written];
-    }
-    free(buf->data);
-    buf->data = (char *)malloc(buf->fill_size);
-    for (i = 0; i < buf->fill_size; i++) {
-        buf->data[i] = tmp[i];
-    }
-    free(tmp);
-    return total_written;
+    buf->size -= total_written;
+    int i;
+    for (i = 0; i < buf->size; i++)
+        buf->data[i] = buf->data[i + total_written];
+    return now_written < 0 ? -1 : total_written;
 }
 
 void erase_first_n(struct buf_t *buf, size_t n) {
     if (n <= 0) {
         return;
     }
-    if (n > buf->fill_size) {
-        n = buf->fill_size;
+    if (n > buf->size) {
+        n = buf->size;
     }
-    char *tmp = (char *)malloc(buf->fill_size - n);
+    char *tmp = (char *)malloc(buf->size - n);
     size_t i;
-    for (i = n; i < buf->fill_size; i++) {
+    for (i = n; i < buf->size; i++) {
         tmp[i-n] = buf->data[i];
     }
     free(buf->data);
-    buf->fill_size -= n;
-    buf->data = (char *)malloc(buf->fill_size+1);
-    for (i = 0; i < buf->fill_size; i++) {
+    buf->size -= n;
+    buf->data = (char *)malloc(buf->size+1);
+    for (i = 0; i < buf->size; i++) {
         buf->data[i] = tmp[i];
     }
     free(tmp);
@@ -161,8 +107,7 @@ void erase_first_n(struct buf_t *buf, size_t n) {
 
 ssize_t buf_getline(int fd, struct buf_t *buf, char *dest) {
     size_t i = 0;
-    //printf("%d\n", buf->fill_size);
-    for (i = 0; i < buf->fill_size; i++) {
+    for (i = 0; i < buf->size; i++) {
         char cur = buf->data[i];
         if (cur == '\n') {
             erase_first_n(buf, i+1);
@@ -174,9 +119,9 @@ ssize_t buf_getline(int fd, struct buf_t *buf, char *dest) {
     erase_first_n(buf, i);
     while (1) {
         buf_fill(fd, buf, 1);
-        if (buf->fill_size == 0) return i;
+        if (buf->size == 0) return i;
         int j = 0;
-        for (j = 0; j < buf->fill_size; j++) {
+        for (j = 0; j < buf->size; j++) {
             char cur = buf->data[j];
             dest[i++] = cur;
             if (cur == '\n') {
@@ -191,5 +136,5 @@ ssize_t buf_getline(int fd, struct buf_t *buf, char *dest) {
 
 void buf_clear(struct buf_t *buf) {
     free(buf->data);
-    buf->fill_size = 0;
+    buf->size = 0;
 }
